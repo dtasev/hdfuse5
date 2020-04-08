@@ -79,8 +79,8 @@ class HDFuse5(Operations):
 					pass
 
 		def makeIntoDir(self, statdict):
-			statdict["st_mode"] = statdict["st_mode"] ^ 0100000 | 0040000
-			for i in [ [ 0400 , 0100 ] , [ 040 , 010 ] , [ 04, 01 ] ]:
+			statdict["st_mode"] = statdict["st_mode"] ^ 0o100000 | 0o040000
+			for i in [ [ 0o400 , 0o100 ] , [ 0o40 , 0o10 ] , [ 0o4, 0o1 ] ]:
 				if (statdict["st_mode"] & i[0]) != 0:
 					statdict["st_mode"] = statdict["st_mode"] | i[1]
 			return statdict
@@ -160,25 +160,25 @@ class HDFuse5(Operations):
 			return 0
 
 	def access(self, path, mode):
-		self.PotentialHDFFile(path).access(mode);
+		self.PotentialHDFFile(path).access(mode)
 
 	def read(self, path, size, offset, fh):
 		return self.PotentialHDFFile(path).read(size, offset, fh, self.rwlock)
 
 	def getattr(self, path, fh=None):
-		return self.PotentialHDFFile(path).getattr();
+		return self.PotentialHDFFile(path).getattr()
 
 	def getxattr(self, path, name):
-		return self.PotentialHDFFile(path).getxattr(name);
+		return self.PotentialHDFFile(path).getxattr(name)
 
 	def listxattr(self, path):
-		return self.PotentialHDFFile(path).listxattr();
+		return self.PotentialHDFFile(path).listxattr()
 
 	def readdir(self, path, fh):
-		return self.PotentialHDFFile(path).listdir();
+		return self.PotentialHDFFile(path).listdir()
 
 	def release(self, path, fh):
-		return self.PotentialHDFFile(path).close(fh);
+		return self.PotentialHDFFile(path).close(fh)
 
 	def statfs(self, path):
 		stv = os.statvfs(path)
@@ -187,7 +187,7 @@ class HDFuse5(Operations):
 			'f_frsize', 'f_namemax'))
 
 	def open(self, path, flags):
-		return self.PotentialHDFFile(path).open(flags);
+		return self.PotentialHDFFile(path).open(flags)
 
 	truncate = None
 	write = None

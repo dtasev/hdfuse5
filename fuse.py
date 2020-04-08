@@ -547,7 +547,7 @@ class Operations(object):
         
         if path != '/':
             raise FuseOSError(ENOENT)
-        return dict(st_mode=(S_IFDIR | 0755), st_nlink=2)
+        return dict(st_mode=(S_IFDIR | 0o755), st_nlink=2)
     
     def getxattr(self, path, name, position=0):
         raise FuseOSError(ENOTSUP)
