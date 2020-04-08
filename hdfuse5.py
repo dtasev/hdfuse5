@@ -16,210 +16,207 @@
 
 from __future__ import with_statement
 
+import os
 from errno import EACCES
 from sys import argv
 from threading import Lock
 
-import sys
-import stat
-import os
 import h5py
-import logging
 
-from fuse import FUSE, FuseOSError, Operations, LoggingMixIn
+from fuse import FUSE, FuseOSError, Operations
 
 
 class HDFuse5(Operations):
+    def __init__(self, root):
+        self.root = os.path.realpath(root)
+        self.rwlock = Lock()
 
-	def __init__(self, root):
-		self.root = os.path.realpath(root)
-		self.rwlock = Lock()
+    def __call__(self, op, path, *args):
+        return super(HDFuse5, self).__call__(op, self.root + path, *args)
 
-	def __call__(self, op, path, *args):
-		return super(HDFuse5, self).__call__(op, self.root + path, *args)
+    class PotentialHDFFile:
+        def __init__(self, path):
+            # self.log(f"Opening {path}")
+            self.dsattrs = {
+                "user.ndim": (lambda x: x.value.ndim),
+                "user.shape": (lambda x: x.value.shape),
+                "user.dtype": (lambda x: x.value.dtype),
+                "user.size": (lambda x: x.value.size),
+                "user.itemsize": (lambda x: x.value.itemsize),
+                "user.dtype.itemsize": (lambda x: x.value.dtype.itemsize),
+            }
+            self.fullpath = path
+            self.nexusfile = None
+            self.nexushandle = None
+            self.internalpath = "/"
+            if os.path.lexists(path):
+                self.testHDF(path)
+            else:
+                components = path.split("/")
+                # remote parts of the path until the nxs file is found
+                # we end up with internalpath having the bits that were removed
+                # as they are used internally in the nxs file to traverse it
+                for i in range(len(components), 0, -1):
+                    test = "/".join(components[:i])
+                    if self.testHDF(test):
+                        self.internalpath = "/".join(components[i - len(components):])
+                        break
 
-	class PotentialHDFFile:
+        def testHDF(self, path):
+            if os.path.isfile(path):
+                try:
+                    self.nexushandle = h5py.File(path, 'r')
+                    self.nexusfile = path
+                    return True
+                except Exception:
+                    pass
+                return False
 
-		def __init__(self, path):
-			# self.log(f"Opening {path}")
-			self.dsattrs = { 	"user.ndim" : (lambda x : x.value.ndim),
-						"user.shape" : (lambda x : x.value.shape),
-						"user.dtype" : (lambda x : x.value.dtype),
-						"user.size" : (lambda x : x.value.size),
-						"user.itemsize" : (lambda x : x.value.itemsize),
-						"user.dtype.itemsize" : (lambda x : x.value.dtype.itemsize),
-					}
-			self.fullpath = path
-			self.nexusfile = None
-			self.nexushandle = None
-			self.internalpath = "/"
-			if os.path.lexists(path):
-				self.testHDF(path)
-			else:
-				components = path.split("/")
-				# remote parts of the path until the nxs file is found
-				# we end up with internalpath having the bits that were removed
-				# as they are used internally in the nxs file to traverse it
-				for i in range(len(components), 0, -1):
-					test = "/".join(components[:i])
-					if self.testHDF(test):
-						self.internalpath = "/".join(components[i-len(components):])
-						break
+        def __del__(self):
+            if self.nexushandle is not None:
+                try:
+                    self.nexushandle.close()
+                except Exception:
+                    pass
 
-		def testHDF(self, path):
-			if os.path.isfile(path):
-				try:
-					self.nexushandle = h5py.File(path, 'r')
-					self.nexusfile = path
-					return True
-				except Exception:
-					pass
-				return False
+        def makeIntoDir(self, statdict):
+            statdict["st_mode"] = statdict["st_mode"] ^ 0o100000 | 0o040000
+            for i in [[0o400, 0o100], [0o40, 0o10], [0o4, 0o1]]:
+                if (statdict["st_mode"] & i[0]) != 0:
+                    statdict["st_mode"] = statdict["st_mode"] | i[1]
+            return statdict
 
-		def __del__(self):
-			if self.nexushandle is not None:
-				try:
-					self.nexushandle.close()
-				except Exception:
-					pass
+        def getattr(self):
+            if self.nexusfile is not None:
+                st = os.lstat(self.nexusfile)
+            else:
+                st = os.lstat(self.fullpath)
+            statdict = dict(
+                (key, getattr(st, key))
+                for key in ('st_atime', 'st_ctime', 'st_gid', 'st_mode', 'st_mtime', 'st_nlink', 'st_size', 'st_uid'))
+            if self.nexusfile is not None:
+                if self.internalpath == "/":
+                    statdict = self.makeIntoDir(statdict)
+                elif isinstance(self.nexushandle[self.internalpath], h5py.Group):
+                    statdict = self.makeIntoDir(statdict)
+                    statdict["st_size"] = 0
+                elif isinstance(self.nexushandle[self.internalpath], h5py.Dataset):
+                    ob = self.nexushandle[self.internalpath].value
+                    statdict["st_size"] = ob.size * ob.itemsize
+                    statdict["st_mode"] = 0o100400  # mark datasets as read only
+            return statdict
 
-		def makeIntoDir(self, statdict):
-			statdict["st_mode"] = statdict["st_mode"] ^ 0o100000 | 0o040000
-			for i in [[0o400, 0o100], [0o40, 0o10], [0o4, 0o1]]:
-				if (statdict["st_mode"] & i[0]) != 0:
-					statdict["st_mode"] = statdict["st_mode"] | i[1]
-			return statdict
+        def getxattr(self, name):
+            if self.nexushandle is None:
+                return b""
+            rawname = name[5:]
+            if rawname in self.nexushandle[self.internalpath].attrs.keys():
+                attrval = str(self.nexushandle[self.internalpath].attrs[rawname])
+                return attrval
+            if isinstance(self.nexushandle[self.internalpath], h5py.Dataset):
+                if name in self.dsattrs.keys():
+                    attrval = str(self.dsattrs[name](self.nexushandle[self.internalpath]))
+                    return attrval
+            return b""
 
-		def getattr(self):
-			if self.nexusfile is not None:
-				st = os.lstat(self.nexusfile)
-			else:
-				st = os.lstat(self.fullpath)
-			statdict = dict((key, getattr(st, key)) for key in ('st_atime', 'st_ctime',
-				'st_gid', 'st_mode', 'st_mtime', 'st_nlink', 'st_size', 'st_uid'))
-			if self.nexusfile is not None:
-				if self.internalpath == "/":
-					statdict = self.makeIntoDir(statdict)
-				elif isinstance(self.nexushandle[self.internalpath], h5py.Group):
-					statdict = self.makeIntoDir(statdict)
-					statdict["st_size"] = 0
-				elif isinstance(self.nexushandle[self.internalpath], h5py.Dataset):
-					ob = self.nexushandle[self.internalpath].value
-					statdict["st_size"] = ob.size * ob.itemsize
-					statdict["st_mode"] = 0o100400  # mark datasets as read only
-			return statdict
+        def listxattr(self):
+            if self.nexushandle is None:
+                return []
+            xattrs = []
+            for i in self.nexushandle[self.internalpath].attrs.keys():
+                xattrs.append("user." + i)
+            if isinstance(self.nexushandle[self.internalpath], h5py.Dataset):
+                for i in self.dsattrs.keys():
+                    xattrs.append(i)
+            return xattrs
 
-		def getxattr(self, name):
-			if self.nexushandle is None:
-				return b""
-			rawname = name[5:]
-			if rawname in self.nexushandle[self.internalpath].attrs.keys():
-				attrval = str(self.nexushandle[self.internalpath].attrs[rawname])
-				return attrval
-			if isinstance(self.nexushandle[self.internalpath], h5py.Dataset):
-				if name in self.dsattrs.keys():
-					attrval = str(self.dsattrs[name](self.nexushandle[self.internalpath]))
-					return attrval
-			return b""
+        def listdir(self):
+            if self.nexushandle is None:
+                items = ['.', '..'] + [name for name in os.listdir(self.fullpath)]
+            else:
+                items = self.nexushandle[self.internalpath].items()
+                items = ['.', '..'] + [item[0] for item in items]
+            return items
 
-		def listxattr(self):
-			if self.nexushandle == None:
-				return []
-			xattrs = []
-			for i in self.nexushandle[self.internalpath].attrs.keys():
-					xattrs.append("user."+i)
-			if isinstance(self.nexushandle[self.internalpath],h5py.Dataset):
-				for i in self.dsattrs.keys():
-					xattrs.append(i)
-			return xattrs
+        def access(self, mode):
+            path = self.fullpath
+            if self.nexusfile is not None:
+                path = self.nexusfile
+                if mode == os.X_OK:
+                    mode = os.R_OK
+            if not os.access(path, mode):
+                raise FuseOSError(EACCES)
 
-		def listdir(self):
-			if self.nexushandle == None:
-				items = ['.', '..'] + [name for name in os.listdir(self.fullpath)]
-			else:
-				items = self.nexushandle[self.internalpath].items()
-				items = ['.', '..'] + [item[0] for item in items]
-			return items
+        def read(self, size, offset, fh, lock):
+            if self.nexushandle is None or self.internalpath == "/":
+                with lock:
+                    os.lseek(fh, offset, 0)
+                return os.read(fh, size)
+            if isinstance(self.nexushandle[self.internalpath], h5py.Dataset):
+                return self.nexushandle[self.internalpath].value.tostring()[offset:offset + size]
 
-		def access(self, mode):
-			path = self.fullpath
-			if self.nexusfile != None:
-				path = self.nexusfile
-				if mode == os.X_OK:
-					mode = os.R_OK
-			if not os.access(path, mode):
-				raise FuseOSError(EACCES)
+        def open(self, flags):
+            if self.nexushandle is None or self.internalpath == "/":
+                return os.open(self.fullpath, flags)
+            return 0
 
-		def read(self, size, offset, fh, lock):
-			if self.nexushandle == None or self.internalpath == "/":
-				with lock:
-					os.lseek(fh, offset, 0)
-				return os.read(fh, size)
-			if isinstance(self.nexushandle[self.internalpath],h5py.Dataset):
-				return self.nexushandle[self.internalpath].value.tostring()[offset:offset+size]
+        def close(self, fh):
+            if self.nexushandle is None or self.internalpath == "/":
+                return os.close(fh)
+            return 0
 
-		def open(self, flags):
-			if self.nexushandle == None or self.internalpath == "/":
-				return os.open(self.fullpath, flags)
-			return 0
+    def access(self, path, mode):
+        self.PotentialHDFFile(path).access(mode)
 
-		def close(self, fh):
-			if self.nexushandle == None or self.internalpath == "/":
-				return os.close(fh)
-			return 0
+    def read(self, path, size, offset, fh):
+        return self.PotentialHDFFile(path).read(size, offset, fh, self.rwlock)
 
-	def access(self, path, mode):
-		self.PotentialHDFFile(path).access(mode)
+    def getattr(self, path, fh=None):
+        return self.PotentialHDFFile(path).getattr()
 
-	def read(self, path, size, offset, fh):
-		return self.PotentialHDFFile(path).read(size, offset, fh, self.rwlock)
+    def getxattr(self, path, name):
+        return self.PotentialHDFFile(path).getxattr(name)
 
-	def getattr(self, path, fh=None):
-		return self.PotentialHDFFile(path).getattr()
+    def listxattr(self, path):
+        return self.PotentialHDFFile(path).listxattr()
 
-	def getxattr(self, path, name):
-		return self.PotentialHDFFile(path).getxattr(name)
+    def readdir(self, path, fh):
+        return self.PotentialHDFFile(path).listdir()
 
-	def listxattr(self, path):
-		return self.PotentialHDFFile(path).listxattr()
+    def release(self, path, fh):
+        return self.PotentialHDFFile(path).close(fh)
 
-	def readdir(self, path, fh):
-		return self.PotentialHDFFile(path).listdir()
+    def statfs(self, path):
+        stv = os.statvfs(path)
+        return dict((key, getattr(stv, key)) for key in ('f_bavail', 'f_bfree', 'f_blocks', 'f_bsize', 'f_favail',
+                                                         'f_ffree', 'f_files', 'f_flag', 'f_frsize', 'f_namemax'))
 
-	def release(self, path, fh):
-		return self.PotentialHDFFile(path).close(fh)
+    def open(self, path, flags):
+        return self.PotentialHDFFile(path).open(flags)
 
-	def statfs(self, path):
-		stv = os.statvfs(path)
-		return dict((key, getattr(stv, key)) for key in ('f_bavail', 'f_bfree',
-			'f_blocks', 'f_bsize', 'f_favail', 'f_ffree', 'f_files', 'f_flag',
-			'f_frsize', 'f_namemax'))
+    truncate = None
+    write = None
+    rename = None
+    symlink = None
+    setxattr = None
+    removexattr = None
+    link = None
+    mkdir = None
+    mknod = None
+    rmdir = None
+    unlink = None
+    chmod = None
+    chown = None
+    create = None
+    fsync = None
+    flush = None
+    utimens = os.utime
+    readlink = os.readlink
 
-	def open(self, path, flags):
-		return self.PotentialHDFFile(path).open(flags)
-
-	truncate = None
-	write = None
-	rename = None
-	symlink = None
-	setxattr = None
-	removexattr = None
-	link = None
-	mkdir = None
-	mknod = None
-	rmdir = None
-	unlink = None
-	chmod = None
-	chown = None
-	create = None
-	fsync = None
-	flush = None
-	utimens = os.utime
-	readlink = os.readlink
 
 if __name__ == "__main__":
-	if len(argv) != 3:
-		print(f'usage: {argv[0]} <root> <mountpoint>')
-		exit(1)
+    if len(argv) != 3:
+        print(f'usage: {argv[0]} <root> <mountpoint>')
+        exit(1)
 
-	fuse = FUSE(HDFuse5(argv[1]), argv[2])
+    fuse = FUSE(HDFuse5(argv[1]), argv[2])
