@@ -16,9 +16,13 @@
 
 from __future__ import with_statement
 
+import argparse
+import logging
 import os
+import subprocess
+import tempfile
 from errno import EACCES
-from sys import argv
+from multiprocessing import Process
 from threading import Lock
 
 import h5py
@@ -214,9 +218,48 @@ class HDFuse5(Operations):
     readlink = os.readlink
 
 
-if __name__ == "__main__":
-    if len(argv) != 3:
-        print(f'usage: {argv[0]} <root> <mountpoint>')
-        exit(1)
+def main():
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('-d', '--directory', help="Directory in which the HDF files are located.")
+    parser.add_argument('-e',
+                        '--editor',
+                        default='vim',
+                        help="Editor in which the directory will be opened for navigation.")
+    # parser.add_argument('--keep-mount',
+    #                     action='store_true',
+    #                     help="If True the mount will not be removed after the editor has exited.")
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default="INFO",
+        help="Log verbosity level. Available options are: TRACE, DEBUG, INFO, WARN, CRITICAL",
+    )
 
-    fuse = FUSE(HDFuse5(argv[1]), argv[2])
+    args = parser.parse_args()
+
+    logging.basicConfig(level=args.log_level, format='%(asctime)s :: %(message)s')
+
+    with tempfile.TemporaryDirectory() as temp_mount_dir:
+        logging.info(f"Running in tempdir: {temp_mount_dir}")
+        hdfuse = HDFuse5(args.directory)
+        p = Process(target=FUSE, args=(hdfuse, temp_mount_dir))
+        p.start()
+
+        logging.debug(f"Entering {args.editor}")
+        err = subprocess.check_call([args.editor, temp_mount_dir])
+        if err != 0:
+            logging.error(f"{args.editor} exited with error code: {err}")
+
+        logging.debug("Joining process")
+        p.join()
+
+        logging.debug("Stopping mount")
+        err = subprocess.check_call(['fusermount', '-u', temp_mount_dir])
+        if err != 0:
+            logging.critical(f"Failed to unmount directory {temp_mount_dir} with fusermount. Error code: {err}")
+        else:
+            logging.info(f"Directory successfully unmounted")
+
+
+if __name__ == "__main__":
+    main()
