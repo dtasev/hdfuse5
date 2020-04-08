@@ -638,7 +638,7 @@ class Operations(object):
 
 class LoggingMixIn:
     def __call__(self, op, path, *args):
-        print '->', op, path, repr(args)
+        print('->', op, path, repr(args))
         ret = '[Unhandled Exception]'
         try:
             ret = getattr(self, op)(path, *args)
@@ -647,4 +647,4 @@ class LoggingMixIn:
             ret = str(e)
             raise
         finally:
-            print '<-', op, repr(ret)
+            print('<-', op, repr(ret))

@@ -210,7 +210,7 @@ class HDFuse5(Operations):
 
 if __name__ == "__main__":
 	if len(argv) != 3:
-		print 'usage: %s <root> <mountpoint>' % argv[0]
+		print('usage: %s <root> <mountpoint>' % argv[0])
 		exit(1)
 	#signal.signal(signal.SIGINT, signal.SIG_DFL)
 	#fuse = FUSE(HDFuse5(argv[1]), argv[2], foreground=True)
