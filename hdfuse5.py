@@ -104,15 +104,17 @@ class HDFuse5(Operations):
 			return statdict	
 
 		def getxattr(self, name):
-			if self.nexushandle == None:
-				return ""
+			if self.nexushandle is None:
+				return b""
 			rawname = name[5:]
 			if rawname in self.nexushandle[self.internalpath].attrs.keys():
-				return self.nexushandle[self.internalpath].attrs[rawname].__str__()
-			if isinstance(self.nexushandle[self.internalpath],h5py.Dataset):
+				attrval = str(self.nexushandle[self.internalpath].attrs[rawname])
+				return attrval
+			if isinstance(self.nexushandle[self.internalpath], h5py.Dataset):
 				if name in self.dsattrs.keys():
-					return self.dsattrs[name](self.nexushandle[self.internalpath]).__str__()
-			return ""
+					attrval = str(self.dsattrs[name](self.nexushandle[self.internalpath]))
+					return attrval
+			return b""
 
 		def listxattr(self):
 			if self.nexushandle == None:
