@@ -1,7 +1,7 @@
-What is hdfuse5?
-================
+What is hdfuse?
+===============
 
-hdfuse5 is a filesystem in userspace (FUSE https://github.com/libfuse/libfuse or
+hdfuse is a filesystem in userspace (FUSE https://github.com/libfuse/libfuse or
 MacFUSE https://osxfuse.github.io/) to explore data stored in
 hierarchical hdf5 files (see https://www.hdfgroup.org/solutions/hdf5/).
 
@@ -14,19 +14,14 @@ and directories are just mirrored unchanged.
 The main purpose is to enable a quick access to the contents of hdf5 files
 with normal system tools (grep, find, cat, file browser, etc.).
 
-What do I need to run hdfuse5?
+What do I need to run hdfuse?
 ==============================
 
  * python (https://www.python.org/)
  * h5py (https://www.h5py.org/)
- * fusepy (see below)
+ * fusepy (https://github.com/fusepy/fusepy)
  * FUSE or MacFUSE support in you operating system and the required
    permissions to use it. That rules out any Windows variants.
-
-This software uses fusepy available from https://github.com/fusepy/fusepy
-It provides a simple python interface to FUSE and MacFUSE in a single file.
-fusepy is under the ISC License so it could be included here for convenience.
-There have been a few updates to it since, that are not incorporated.
 
 Most distributions have a 'fuse' user group you need to be a member of in
 order to be allowed to use fuse (and therefore hdfuse5).
@@ -34,92 +29,94 @@ order to be allowed to use fuse (and therefore hdfuse5).
 What do I need to do?
 =====================
 
-Provided the above requirements are met you can do this from within the
-source directory:
+
+    $ pip install hdfuse
+    # This will put you inside the editor (by default Vim), browsing
+    # the directory that was mounted with `-d`
+    $ hdfuse -d directory_containing_nxs_file
 
 
-        $ ls
-        exampleroot  fuse.py  fuse.pyc  hdfuse5.py  LICENSE  README
-        $ ls -l exampleroot # contains an hdf5 file
-        total 16
-        -rw-r--r-- 1 user user 14704 2011-06-17 16:55 NXtest.h5
-        $ mkdir mnt # create mountpoint
-        $ python hdfuse5.py exampleroot mnt # mount
-        $ # what's in the mountpoint now? a directory for the file!
-        $ ls -l mnt
-        total 0
-        drwxr-xr-x 1 user user 14704 2011-06-17 16:55 NXtest.h5
-        $ # explore the structure
-        $ find mnt -ls
-             1    0 drwxr-xr-x   2 user user     4096 Jun 17 16:55 mnt
-             2    0 drwxr-xr-x   1 user user    14704 Jun 17 16:55 mnt/NXtest.h5
-             3    0 drwxr-xr-x   1 user user        0 Jun 17 16:55 mnt/NXtest.h5/entry
-             4    0 -rw-r--r--   1 user user       10 Jun 17 16:55 mnt/NXtest.h5/entry/ch_data
-             5    0 drwxr-xr-x   1 user user        0 Jun 17 16:55 mnt/NXtest.h5/entry/data
-             6    0 -rw-r--r--   1 user user     8000 Jun 17 16:55 mnt/NXtest.h5/entry/data/comp_data
-             7    0 -rw-r--r--   1 user user       28 Jun 17 16:55 mnt/NXtest.h5/entry/data/flush_data
-             8    0 -rw-r--r--   1 user user      160 Jun 17 16:55 mnt/NXtest.h5/entry/data/r8_data
-             9    0 -rw-r--r--   1 user user        4 Jun 17 16:55 mnt/NXtest.h5/entry/i1_data
-            10    0 -rw-r--r--   1 user user        8 Jun 17 16:55 mnt/NXtest.h5/entry/i2_data
-            11    0 -rw-r--r--   1 user user       16 Jun 17 16:55 mnt/NXtest.h5/entry/i4_data
-            12    0 -rw-r--r--   1 user user       32 Jun 17 16:55 mnt/NXtest.h5/entry/i8_data
-            13    0 -rw-r--r--   1 user user       80 Jun 17 16:55 mnt/NXtest.h5/entry/r4_data
-            14    0 -rw-r--r--   1 user user      160 Jun 17 16:55 mnt/NXtest.h5/entry/r8_data
-            15    0 drwxr-xr-x   1 user user        0 Jun 17 16:55 mnt/NXtest.h5/entry/sample
-            16    0 -rw-r--r--   1 user user       20 Jun 17 16:55 mnt/NXtest.h5/entry/sample/ch_data
-            17    0 drwxr-xr-x   1 user user        0 Jun 17 16:55 mnt/NXtest.h5/link
-            18    0 -rw-r--r--   1 user user      160 Jun 17 16:55 mnt/NXtest.h5/link/renLinkData
-            19    0 drwxr-xr-x   1 user user        0 Jun 17 16:55 mnt/NXtest.h5/link/renLinkGroup
-            20    0 -rw-r--r--   1 user user       20 Jun 17 16:55 mnt/NXtest.h5/link/renLinkGroup/ch_data
-            21    0 drwxr-xr-x   1 user user        0 Jun 17 16:55 mnt/NXtest.h5/link/sample
-            22    0 -rw-r--r--   1 user user       20 Jun 17 16:55 mnt/NXtest.h5/link/sample/ch_data
-        $ # find out the attributes of a dataset
-        $ getfattr -d mnt/NXtest.h5/entry/data/comp_data
-        # file: mnt/NXtest.h5/entry/data/comp_data
-        user.dtype="int32"
-        user.dtype.itemsize="4"
-        user.itemsize="4"
-        user.ndim="2"
-        user.shape="(100, 20)"
-        user.size="2000"
-        $ # explore the data (see "man od")
-        $ od -t dI -w4 -v mnt/NXtest.h5/entry/data/comp_data | head -30
-        0000000           0
-        0000004           0
-        0000010           0
-        0000014           0
-        0000020           0
-        0000024           0
-        0000030           0
-        0000034           0
-        0000040           0
-        0000044           0
-        0000050           0
-        0000054           0
-        0000060           0
-        0000064           0
-        0000070           0
-        0000074           0
-        0000100           0
-        0000104           0
-        0000110           0
-        0000114           0
-        0000120           1
-        0000124           1
-        0000130           1
-        0000134           1
-        0000140           1
-        0000144           1
-        0000150           1
-        0000154           1
-        0000160           1
-        0000164           1
-        $ grep -ar sample mnt # find some sample information
-        mnt/NXtest.h5/entry/sample/ch_data:NeXus sample
-        mnt/NXtest.h5/link/renLinkGroup/ch_data:NeXus sample
-        mnt/NXtest.h5/link/sample/ch_data:NeXus sample
-        $ fusermount -u mnt  # get rid of the mount after you are done
-        $
+To go back to a shell from Vim you can do `:sh`. The directory path should be
+visible just above where the new shell starts. If you `cd` to it then you can
+browse it like a normal directory:
+
+
+    $ # what's in the mountpoint now? a directory for the file!
+    $ ls -l tmppath
+    total 0
+    drwxr-xr-x 1 user user 14704 2011-06-17 16:55 NXtest.h5
+    $ # explore the structure
+    $ find tmppath -ls
+    1    0 drwxr-xr-x   2 user user     4096 Jun 17 16:55 tmppath
+    2    0 drwxr-xr-x   1 user user    14704 Jun 17 16:55 tmppath/NXtest.h5
+    3    0 drwxr-xr-x   1 user user        0 Jun 17 16:55 tmppath/NXtest.h5/entry
+    4    0 -rw-r--r--   1 user user       10 Jun 17 16:55 tmppath/NXtest.h5/entry/ch_data
+    5    0 drwxr-xr-x   1 user user        0 Jun 17 16:55 tmppath/NXtest.h5/entry/data
+    6    0 -rw-r--r--   1 user user     8000 Jun 17 16:55 tmppath/NXtest.h5/entry/data/comp_data
+    7    0 -rw-r--r--   1 user user       28 Jun 17 16:55 tmppath/NXtest.h5/entry/data/flush_data
+    8    0 -rw-r--r--   1 user user      160 Jun 17 16:55 tmppath/NXtest.h5/entry/data/r8_data
+    9    0 -rw-r--r--   1 user user        4 Jun 17 16:55 tmppath/NXtest.h5/entry/i1_data
+    10    0 -rw-r--r--   1 user user        8 Jun 17 16:55 tmppath/NXtest.h5/entry/i2_data
+    11    0 -rw-r--r--   1 user user       16 Jun 17 16:55 tmppath/NXtest.h5/entry/i4_data
+    12    0 -rw-r--r--   1 user user       32 Jun 17 16:55 tmppath/NXtest.h5/entry/i8_data
+    13    0 -rw-r--r--   1 user user       80 Jun 17 16:55 tmppath/NXtest.h5/entry/r4_data
+    14    0 -rw-r--r--   1 user user      160 Jun 17 16:55 tmppath/NXtest.h5/entry/r8_data
+    15    0 drwxr-xr-x   1 user user        0 Jun 17 16:55 tmppath/NXtest.h5/entry/sample
+    16    0 -rw-r--r--   1 user user       20 Jun 17 16:55 tmppath/NXtest.h5/entry/sample/ch_data
+    17    0 drwxr-xr-x   1 user user        0 Jun 17 16:55 tmppath/NXtest.h5/link
+    18    0 -rw-r--r--   1 user user      160 Jun 17 16:55 tmppath/NXtest.h5/link/renLinkData
+    19    0 drwxr-xr-x   1 user user        0 Jun 17 16:55 tmppath/NXtest.h5/link/renLinkGroup
+    20    0 -rw-r--r--   1 user user       20 Jun 17 16:55 tmppath/NXtest.h5/link/renLinkGroup/ch_data
+    21    0 drwxr-xr-x   1 user user        0 Jun 17 16:55 tmppath/NXtest.h5/link/sample
+    22    0 -rw-r--r--   1 user user       20 Jun 17 16:55 tmppath/NXtest.h5/link/sample/ch_data
+    $ # find out the attributes of a dataset
+    $ getfattr -d tmppath/NXtest.h5/entry/data/comp_data
+    # file: tmppath/NXtest.h5/entry/data/comp_data
+    user.dtype="int32"
+    user.dtype.itemsize="4"
+    user.itemsize="4"
+    user.ndim="2"
+    user.shape="(100, 20)"
+    user.size="2000"
+    $ # explore the data (see "man od")
+    $ od -t dI -w4 -v tmppath/NXtest.h5/entry/data/comp_data | head -30
+    0000000           0
+    0000004           0
+    0000010           0
+    0000014           0
+    0000020           0
+    0000024           0
+    0000030           0
+    0000034           0
+    0000040           0
+    0000044           0
+    0000050           0
+    0000054           0
+    0000060           0
+    0000064           0
+    0000070           0
+    0000074           0
+    0000100           0
+    0000104           0
+    0000110           0
+    0000114           0
+    0000120           1
+    0000124           1
+    0000130           1
+    0000134           1
+    0000140           1
+    0000144           1
+    0000150           1
+    0000154           1
+    0000160           1
+    0000164           1
+    $ grep -ar sample tmppath # find some sample information
+    mnt/NXtest.h5/entry/sample/ch_data:NeXus sample
+    mnt/NXtest.h5/link/renLinkGroup/ch_data:NeXus sample
+    mnt/NXtest.h5/link/sample/ch_data:NeXus sample
+
+
+After you exit the shell and Vim the file will be automatically closed.
 
 
 Random other questions
@@ -128,10 +125,12 @@ Random other questions
 What kind of performance can I expect?
 --------------------------------------
 
-None. hdfuse5 was coded as a proof of principle. It holds no state, there
+None. hdfuse was coded as a proof of principle. It holds no state, there
 is no caching, no optimisations whatsoever. This left the code quite simple
 and concise but still proved to be good enough for the main application:
 quick inspection of the file structure of a limited number of files.
+
+It is not recommended to run this on a directory with hundreds of HDF5 files.
 
 
 Why do I have to mount a directory? Why can't I mount a single file?
@@ -144,10 +143,8 @@ explore to multiple files easily with "grep" or similar tools.
 Can I have write support?
 -------------------------
 
-Setting up the data storage in hdf5 properly requires some knowledge or 
-at least good assumptions about your data. As a generic tool hdfuse5 
-make any good guesses. Using h5py is not that hard.
-
+It is best to use `h5py` directly for this, that way you can be more
+confident that the data is correct.
 
 Any drawbacks?
 --------------
@@ -164,4 +161,4 @@ Pull requests welcome.
 
 Another idea would get to present data that could be interpreted as image
 data in the hdf5 in a format that could be read by standard image file
-readers, e.g. as tiff. 
+readers, e.g. as tiff.
